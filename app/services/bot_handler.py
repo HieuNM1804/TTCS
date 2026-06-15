@@ -23,7 +23,7 @@ from app.services.telegram_utils import format_html, query_ollama, send_message,
 
 log = logging.getLogger(__name__)
 
-MAX_MEMORY = 5  # number of Q&A exchanges to remember per session
+MAX_MEMORY = 2  # number of Q&A exchanges to remember per session
 
 
 @dataclass
@@ -348,7 +348,7 @@ class BotHandler:
             from app.core.rag import PaperRAG
 
             rag = PaperRAG(paper["arxiv_id"], OLLAMA_BASE_URL, "nomic-embed-text")
-            context = rag.retrieve(question, k=5)
+            context = rag.retrieve(question, k=3)
             log.info("Retrieved context: %d chars", len(context))
 
             # Build prompt with memory
