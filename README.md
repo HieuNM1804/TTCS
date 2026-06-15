@@ -62,8 +62,11 @@ SCHEDULE_TIME=11:17
 OLLAMA_MODEL=qwen3.5:4b
 ```
 
-### Bước 4: Tải Model cho Ollama
-Bật phần mềm Ollama trên máy bạn và chạy lệnh sau ở Terminal:
+### Bước 4: Cài đặt và Tải Model Ollama
+Hệ thống sử dụng Ollama để chạy mô hình AI trực tiếp trên máy tính của bạn nhằm bảo mật dữ liệu và hoàn toàn miễn phí.
+1. Truy cập trang chủ [Ollama.com](https://ollama.com/download) để tải và cài đặt phần mềm Ollama cho máy tính của bạn (hỗ trợ Windows, Mac, Linux).
+2. Sau khi cài đặt xong, bật phần mềm Ollama lên.
+3. Mở Terminal và chạy 2 lệnh sau để tải mô hình Ngôn ngữ (`qwen3.5:4b`) và mô hình Nhúng (`nomic-embed-text`):
 ```powershell
 ollama pull qwen3.5:4b
 ollama pull nomic-embed-text
