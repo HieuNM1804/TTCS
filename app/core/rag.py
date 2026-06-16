@@ -1,12 +1,4 @@
-"""RAG v2 — Improved retrieval with section-aware chunking.
-
-Improvements over rag.py:
-  - PyMuPDF4LLM: Markdown extraction (preserves headers, tables, 2-column)
-  - Section-aware chunking: splits by actual headers from PDF
-  - Metadata: each chunk knows its section name
-  - Filters noise: removes References, Appendix sections
-  - Adjusted weights: BM25 60% / FAISS 40% (better for technical papers)
-"""
+"""RAG — PDF extraction, section-aware chunking, FAISS retrieval."""
 from __future__ import annotations
 
 import logging
@@ -20,34 +12,28 @@ from langchain_community.vectorstores import FAISS
 from langchain_ollama import OllamaEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-
 log = logging.getLogger(__name__)
 
-_index_cache_v2: dict[str, tuple] = {}
+_index_cache: dict[str, tuple] = {}
 
-# Sections to exclude (noise for Q&A)
-EXCLUDE_SECTIONS = {"references", "bibliography", "acknowledgment", "acknowledgments", "appendix"}
+EXCLUDE_KEYWORDS = [
+    "reference", "bibliography", "bibliograph",
+    "acknowledgment", "acknowledgement",
+    "appendix", "supplementary", "supplement",
+    "ablation",
+]
 
 
 class PaperRAG:
-    """Improved RAG with section-aware chunking and metadata."""
 
-    def __init__(
-        self,
-        arxiv_id: str,
-        base_url: str = "http://localhost:11434",
-        model: str = "nomic-embed-text",
-    ) -> None:
+    def __init__(self, arxiv_id: str, base_url: str = "http://localhost:11434",
+                 model: str = "nomic-embed-text") -> None:
         self.arxiv_id = arxiv_id
         self.pdf_path = Path("data/papers") / f"{arxiv_id}.pdf"
         self.index_path = Path("data/indices_v2") / arxiv_id
         self.pdf_path.parent.mkdir(parents=True, exist_ok=True)
         self.index_path.parent.mkdir(parents=True, exist_ok=True)
         self.embeddings = OllamaEmbeddings(base_url=base_url, model=model)
-
-    # ------------------------------------------------------------------
-    # Download
-    # ------------------------------------------------------------------
 
     def download(self) -> None:
         if self.pdf_path.exists():
@@ -60,131 +46,135 @@ class PaperRAG:
             for chunk in resp.iter_content(chunk_size=8192):
                 fh.write(chunk)
 
-    # ------------------------------------------------------------------
-    # Section-aware chunking
-    # ------------------------------------------------------------------
+    @staticmethod
+    def _normalize_headings(md_text: str) -> str:
+        """Convert bold-only lines to ## headings (strict rules)."""
+        def _is_heading(match: re.Match) -> str:
+            text = match.group(1).strip()
+            if len(text) > 60:
+                return match.group(0)
+            if text.endswith('.') or '. ' in text:
+                return match.group(0)
+            if any(c in text for c in ('@', '{', ',', '**')):
+                return match.group(0)
+            if text[0].islower():
+                return match.group(0)
+            return f'## {text}'
 
-    def _extract_sections(self) -> list[Document]:
-        """Extract Markdown from PDF and split by actual headers."""
-        md_text = pymupdf4llm.to_markdown(str(self.pdf_path))
-
-        # Split by top-level headers (### or ##)
-        raw_sections = re.split(r'(?=^###?\s)', md_text, flags=re.MULTILINE)
-
-        max_chunk = 2000
-        sub_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=max_chunk,
-            chunk_overlap=200,
-            separators=["\n\n", "\n", ". ", " "],
+        return re.sub(
+            r'^\s*\*\*(.{3,100}?)\*\*\s*$',
+            _is_heading, md_text, flags=re.MULTILINE,
         )
 
-        chunks = []
-        for section_text in raw_sections:
-            section_text = section_text.strip()
-            if len(section_text) < 50:
-                continue
-
-            # Extract section name from first line
-            header_match = re.match(r'^#{1,4}\s+(.+)', section_text)
-            section_name = header_match.group(1).strip() if header_match else "Unknown"
-
-            # Clean section name (remove numbering like "3.1." prefix)
-            clean_name = re.sub(r'^\d+[\.\d]*\s*', '', section_name)
-
-            # Skip noise sections
-            if clean_name.lower() in EXCLUDE_SECTIONS:
-                log.debug("Skipping section: %s", section_name)
-                continue
-
-            metadata = {
-                "section": section_name,
-                "section_clean": clean_name,
-                "arxiv_id": self.arxiv_id,
-            }
-
-            if len(section_text) <= max_chunk:
-                chunks.append(Document(page_content=section_text, metadata=metadata))
+    @staticmethod
+    def _protect_tables(md_text: str) -> str:
+        """Join table rows so the splitter won't cut mid-table."""
+        MARKER = "\x00"
+        lines = md_text.split("\n")
+        result = []
+        in_table = False
+        for line in lines:
+            stripped = line.strip()
+            is_table = stripped.startswith("|") or stripped.startswith("|-")
+            if is_table:
+                if in_table:
+                    result.append(MARKER + line)
+                else:
+                    in_table = True
+                    result.append(line)
             else:
-                # Section too long → sub-split but keep metadata
-                sub_docs = sub_splitter.create_documents(
-                    [section_text],
-                    metadatas=[metadata],
-                )
-                chunks.extend(sub_docs)
+                in_table = False
+                result.append(line)
+        return "\n".join(result)
 
-        log.info("Section-aware chunking: %d sections → %d chunks", len(raw_sections), len(chunks))
+    def _extract_sections(self) -> list[Document]:
+        try:
+            md_text = pymupdf4llm.to_markdown(str(self.pdf_path))
+        except Exception as exc:
+            log.warning("pymupdf4llm failed (%s), falling back to standard pymupdf", exc)
+            import pymupdf
+            doc = pymupdf.open(str(self.pdf_path))
+            md_text = "\n\n".join(page.get_text() for page in doc)
+            doc.close()
+        md_text = self._normalize_headings(md_text)
+        md_text = self._protect_tables(md_text)
+
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=3500, chunk_overlap=700,
+            separators=["\n## ", "\n### ", "\n#### ", "\n\n", "\n", ". ", " "],
+        )
+        all_docs = splitter.create_documents(
+            [md_text], metadatas=[{"arxiv_id": self.arxiv_id}],
+        )
+
+        # Restore tables + propagate section headings to continuation chunks
+        last_heading = ""
+        for doc in all_docs:
+            doc.page_content = doc.page_content.replace("\x00", "\n")
+            heading_match = re.match(r'^(#{1,6}\s+.+)', doc.page_content)
+            if heading_match and '**' not in heading_match.group(1):
+                last_heading = heading_match.group(1)
+            elif last_heading:
+                doc.page_content = last_heading + "\n\n" + doc.page_content
+
+        # Filter noise
+        chunks = []
+        for doc in all_docs:
+            if len(doc.page_content.strip()) < 50:
+                continue
+            lower = doc.page_content[:300].lower()
+            if any(kw in lower for kw in EXCLUDE_KEYWORDS):
+                continue
+            chunks.append(doc)
+
+        log.info("Chunking: %d chars → %d chunks (filtered from %d)",
+                 len(md_text), len(chunks), len(all_docs))
         return chunks
-
-    # ------------------------------------------------------------------
-    # Build index
-    # ------------------------------------------------------------------
 
     def build(self) -> None:
         self.download()
         if self._index_exists():
-            log.info("Index v2 already exists: %s", self.index_path)
+            log.info("Index already exists: %s", self.index_path)
             return
-
-        log.info("Building v2 index for %s …", self.arxiv_id)
+        log.info("Building index for %s …", self.arxiv_id)
         chunks = self._extract_sections()
-
         if not chunks:
             raise ValueError(f"No chunks extracted from {self.pdf_path}")
-
         vectorstore = FAISS.from_documents(chunks, self.embeddings)
         vectorstore.save_local(str(self.index_path))
-        log.info("Index v2 built — %d chunks", len(chunks))
+        log.info("Index built — %d chunks", len(chunks))
 
     def _index_exists(self) -> bool:
-        return (
-            (self.index_path / "index.faiss").exists()
-            and (self.index_path / "index.pkl").exists()
-        )
-
-    # ------------------------------------------------------------------
-    # Load (with cache)
-    # ------------------------------------------------------------------
+        return (self.index_path / "index.faiss").exists() and \
+               (self.index_path / "index.pkl").exists()
 
     def _load_index(self) -> tuple:
-        if self.arxiv_id in _index_cache_v2:
-            return _index_cache_v2[self.arxiv_id]
-
-        log.info("Loading v2 index from disk: %s", self.index_path)
+        if self.arxiv_id in _index_cache:
+            return _index_cache[self.arxiv_id]
+        log.info("Loading index from disk: %s", self.index_path)
         vectorstore = FAISS.load_local(
-            str(self.index_path),
-            self.embeddings,
+            str(self.index_path), self.embeddings,
             allow_dangerous_deserialization=True,
         )
         chunks = list(vectorstore.docstore._dict.values())
-        _index_cache_v2[self.arxiv_id] = (vectorstore, chunks)
+        _index_cache[self.arxiv_id] = (vectorstore, chunks)
         return vectorstore, chunks
 
-    # ------------------------------------------------------------------
-    # Retrieve
-    # ------------------------------------------------------------------
-
     def retrieve(self, query: str, k: int = 4) -> str:
-        """FAISS MMR retrieval to avoid Conclusion bias."""
         self.build()
-        vectorstore, chunks = self._load_index()
-
-        # Dùng MMR để đa dạng hóa kết quả, tránh bốc trùng Conclusion nhiều lần
-        faiss_mmr = vectorstore.as_retriever(
-            search_type="mmr", 
-            search_kwargs={"k": k, "fetch_k": 20, "lambda_mult": 0.5}
+        vectorstore, _ = self._load_index()
+        retriever = vectorstore.as_retriever(
+            search_type="mmr",
+            search_kwargs={"k": k, "fetch_k": 20, "lambda_mult": 0.5},
         )
-        
-        results = faiss_mmr.invoke(query)
+        results = retriever.invoke(query)
         return "\n\n".join(doc.page_content for doc in results[:k])
 
     def retrieve_docs(self, query: str, k: int = 4) -> list[Document]:
-        """FAISS MMR retrieval, returns List[Document] with metadata."""
         self.build()
-        vectorstore, chunks = self._load_index()
-
-        faiss_mmr = vectorstore.as_retriever(
-            search_type="mmr", 
-            search_kwargs={"k": k, "fetch_k": 20, "lambda_mult": 0.5}
+        vectorstore, _ = self._load_index()
+        retriever = vectorstore.as_retriever(
+            search_type="mmr",
+            search_kwargs={"k": k, "fetch_k": 20, "lambda_mult": 0.5},
         )
-        
-        return faiss_mmr.invoke(query)[:k]
+        return retriever.invoke(query)[:k]

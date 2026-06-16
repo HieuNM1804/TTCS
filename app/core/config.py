@@ -1,9 +1,4 @@
-"""Shared configuration, environment loading, and logging setup.
-
-Single source of truth for all config values — eliminates the duplicated
-load_env() that was copy-pasted across scheduler.py, send_papers.py,
-and trending_github.py.
-"""
+"""Shared configuration, environment loading, and logging setup."""
 from __future__ import annotations
 
 import logging
@@ -11,12 +6,7 @@ import os
 from pathlib import Path
 
 
-# ---------------------------------------------------------------------------
-# Environment
-# ---------------------------------------------------------------------------
-
 def _load_env() -> None:
-    """Read .env file and set defaults (won't overwrite existing vars)."""
     env_path = Path(__file__).parent.parent.parent / ".env"
     if not env_path.exists():
         return
@@ -30,41 +20,17 @@ def _load_env() -> None:
 
 _load_env()
 
-
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
-
-# ---------------------------------------------------------------------------
-# Telegram
-# ---------------------------------------------------------------------------
-
 TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "")
-
-# ---------------------------------------------------------------------------
-# Ollama / LLM
-# ---------------------------------------------------------------------------
-
 OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen3.5:4b")
-
-# ---------------------------------------------------------------------------
-# Scheduler
-# ---------------------------------------------------------------------------
-
 SCHEDULE_TIME: str = os.getenv("SCHEDULE_TIME", "13:00")
-
-# ---------------------------------------------------------------------------
-# Paper search
-# ---------------------------------------------------------------------------
 
 TOPICS: list[str] = [
     t.strip()
