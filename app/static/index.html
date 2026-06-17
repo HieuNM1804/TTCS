@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daily Paper Web RAG</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --bg-color: #0f172a;
+            --surface: rgba(30, 41, 59, 0.7);
+            --surface-border: rgba(255, 255, 255, 0.1);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --user-msg: rgba(99, 102, 241, 0.2);
+            --bot-msg: rgba(30, 41, 59, 0.6);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(168, 85, 247, 0.15) 0px, transparent 50%);
+            background-attachment: fixed;
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 900px;
+            background: var(--surface);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--surface-border);
+            border-radius: 24px;
+            padding: 2.5rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+            transition: all 0.4s ease;
+        }
+
+        .header {
+            text-align: center;
+        }
+
+        .header h1 {
+            font-weight: 700;
+            font-size: 2.5rem;
+            background: linear-gradient(to right, #818cf8, #c084fc);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+        }
+
+        /* Upload Section */
+        .upload-area {
+            border: 2px dashed var(--surface-border);
+            border-radius: 16px;
+            padding: 3rem 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: rgba(15, 23, 42, 0.4);
+        }
+
+        .upload-area:hover, .upload-area.dragover {
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.05);
+            transform: translateY(-2px);
+        }
+
+        .upload-area input[type="file"] {
+            display: none;
+        }
+
+        .upload-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        .btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 0.8rem 1.5rem;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn:hover {
+            background: var(--primary-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(99, 102, 241, 0.3);
+        }
+
+        .btn:disabled {
+            background: #475569;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        /* Chat Section */
+        #chat-section {
+            display: none;
+            flex-direction: column;
+            gap: 1.5rem;
+            height: 60vh;
+        }
+
+        .chat-box {
+            flex-grow: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            padding: 1rem 0;
+            scroll-behavior: smooth;
+        }
+
+        .chat-box::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .chat-box::-webkit-scrollbar-thumb {
+            background-color: rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+        }
+
+        .message {
+            max-width: 85%;
+            padding: 1rem 1.2rem;
+            border-radius: 16px;
+            line-height: 1.6;
+            animation: fadeIn 0.4s ease forwards;
+            font-size: 1rem;
+        }
+
+        .message.user {
+            align-self: flex-end;
+            background: var(--user-msg);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.bot {
+            align-self: flex-start;
+            background: var(--bot-msg);
+            border: 1px solid var(--surface-border);
+            border-bottom-left-radius: 4px;
+        }
+
+        .message.bot p {
+            margin-bottom: 0.8rem;
+        }
+        .message.bot p:last-child {
+            margin-bottom: 0;
+        }
+        
+        .message.bot ul, .message.bot ol {
+            margin-left: 1.5rem;
+            margin-bottom: 0.8rem;
+        }
+
+        .message.bot code {
+            background: rgba(0,0,0,0.3);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+
+        .input-area {
+            display: flex;
+            gap: 1rem;
+            background: rgba(15, 23, 42, 0.6);
+            padding: 0.5rem;
+            border-radius: 12px;
+            border: 1px solid var(--surface-border);
+        }
+
+        .input-area input {
+            flex-grow: 1;
+            background: transparent;
+            border: none;
+            color: white;
+            padding: 0.8rem 1rem;
+            font-size: 1rem;
+            outline: none;
+        }
+
+        .input-area input::placeholder {
+            color: var(--text-muted);
+        }
+
+        /* Loaders */
+        .loader {
+            display: inline-flex;
+            gap: 4px;
+        }
+
+        .loader span {
+            width: 8px;
+            height: 8px;
+            background-color: var(--primary);
+            border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+
+        .loader span:nth-child(1) { animation-delay: -0.32s; }
+        .loader span:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+
+        #upload-status {
+            color: var(--text-muted);
+            margin-top: 1rem;
+            font-size: 0.9rem;
+        }
+        
+        .file-info {
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(99, 102, 241, 0.1);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            padding: 1rem 1.5rem;
+            border-radius: 12px;
+            margin-top: 1rem;
+        }
+
+        @media (max-width: 600px) {
+            .container { padding: 1.5rem; }
+            .header h1 { font-size: 2rem; }
+            .message { max-width: 95%; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container" id="main-container">
+        <div class="header">
+            <h1>Daily Paper RAG</h1>
+            <p>Upload a PDF document and start asking questions.</p>
+        </div>
+
+        <div id="upload-section">
+            <div class="upload-area" id="drop-zone">
+                <div class="upload-icon">📄</div>
+                <h3>Drag & Drop your PDF here</h3>
+                <p style="color: var(--text-muted); margin: 0.5rem 0 1.5rem;">or click to browse from your computer</p>
+                <input type="file" id="file-input" accept="application/pdf">
+                <button class="btn" onclick="document.getElementById('file-input').click()">Select PDF</button>
+            </div>
+            <div id="upload-status" style="text-align: center;"></div>
+            
+            <div class="file-info" id="file-info">
+                <div>
+                    <strong id="file-name-display">document.pdf</strong>
+                    <div style="font-size: 0.85rem; color: var(--text-muted);">Indexed successfully</div>
+                </div>
+                <button class="btn" onclick="startChat()">Start Chat</button>
+            </div>
+        </div>
+
+        <div id="chat-section">
+            <div class="chat-box" id="chat-box">
+                <div class="message bot">
+                    <p>Hi! I've read your document. What would you like to know about it?</p>
+                </div>
+            </div>
+            
+            <div class="input-area">
+                <input type="text" id="question-input" placeholder="Ask a question about the document..." onkeypress="handleKeyPress(event)">
+                <button class="btn" id="send-btn" onclick="sendMessage()">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const uploadStatus = document.getElementById('upload-status');
+        const fileInfo = document.getElementById('file-info');
+        const fileNameDisplay = document.getElementById('file-name-display');
+        const uploadSection = document.getElementById('upload-section');
+        const chatSection = document.getElementById('chat-section');
+        const chatBox = document.getElementById('chat-box');
+        const questionInput = document.getElementById('question-input');
+        const sendBtn = document.getElementById('send-btn');
+
+        let currentSessionId = null;
+        let chatHistory = [];
+
+        // Drag and Drop Events
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.add('dragover'), false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.remove('dragover'), false);
+        });
+
+        dropZone.addEventListener('drop', handleDrop, false);
+        fileInput.addEventListener('change', function(e) {
+            if(this.files.length) handleFiles(this.files);
+        });
+
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            handleFiles(files);
+        }
+
+        function handleFiles(files) {
+            if (files.length === 0) return;
+            const file = files[0];
+            
+            if (file.type !== "application/pdf") {
+                uploadStatus.innerHTML = "<span style='color: #ef4444;'>Error: Only PDF files are supported.</span>";
+                return;
+            }
+
+            uploadFile(file);
+        }
+
+        async function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            dropZone.style.display = 'none';
+            uploadStatus.innerHTML = `
+                <div class="loader"><span></span><span></span><span></span></div>
+                <div style="margin-top: 1rem; color: var(--primary);">Uploading and analyzing document... This may take a minute.</div>
+            `;
+
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    currentSessionId = data.session_id;
+                    uploadStatus.style.display = 'none';
+                    fileNameDisplay.textContent = file.name;
+                    fileInfo.style.display = 'flex';
+                } else {
+                    throw new Error(data.error || data.detail || 'Upload failed');
+                }
+            } catch (error) {
+                dropZone.style.display = 'block';
+                uploadStatus.innerHTML = `<span style='color: #ef4444;'>Error: ${error.message}</span>`;
+            }
+        }
+
+        function startChat() {
+            uploadSection.style.display = 'none';
+            chatSection.style.display = 'flex';
+            document.getElementById('main-container').style.height = '85vh';
+            setTimeout(() => questionInput.focus(), 100);
+        }
+
+        function appendMessage(sender, text) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${sender}`;
+            
+            if (sender === 'bot') {
+                // Parse markdown for bot messages
+                msgDiv.innerHTML = marked.parse(text);
+            } else {
+                msgDiv.textContent = text;
+            }
+            
+            chatBox.appendChild(msgDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function showTyping() {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'message bot typing-indicator';
+            msgDiv.id = 'typing-indicator';
+            msgDiv.innerHTML = '<div class="loader"><span></span><span></span><span></span></div>';
+            chatBox.appendChild(msgDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function hideTyping() {
+            const indicator = document.getElementById('typing-indicator');
+            if (indicator) indicator.remove();
+        }
+
+        async function sendMessage() {
+            const question = questionInput.value.trim();
+            if (!question || !currentSessionId) return;
+
+            // Add user message
+            appendMessage('user', question);
+            questionInput.value = '';
+            questionInput.disabled = true;
+            sendBtn.disabled = true;
+
+            // Show typing indicator
+            showTyping();
+
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        session_id: currentSessionId,
+                        question: question,
+                        history: chatHistory.slice(-3) // Send last 3 interactions
+                    })
+                });
+
+                const data = await response.json();
+                hideTyping();
+
+                if (response.ok) {
+                    appendMessage('bot', data.answer);
+                    chatHistory.push({ q: question, a: data.answer });
+                } else {
+                    throw new Error(data.error || data.detail || 'Failed to get response');
+                }
+            } catch (error) {
+                hideTyping();
+                appendMessage('bot', `⚠️ Sorry, an error occurred: ${error.message}`);
+            } finally {
+                questionInput.disabled = false;
+                sendBtn.disabled = false;
+                questionInput.focus();
+            }
+        }
+
+        function handleKeyPress(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        }
+    </script>
+</body>
+</html>
