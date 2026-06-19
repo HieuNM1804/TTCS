@@ -9,12 +9,12 @@ from typing import List
 import logging
 
 from app.core.config import OLLAMA_BASE_URL
+from app.core.prompts import query_chat
 from app.core.rag import PaperRAG
-from app.services.telegram_utils import query_ollama
 
 log = logging.getLogger(__name__)
 
-app = FastAPI(title="Daily Paper Web RAG")
+app = FastAPI(title="DocMind Web RAG")
 
 # Mount static files
 static_dir = Path(__file__).parent / "static"
@@ -60,7 +60,7 @@ class ChatRequest(BaseModel):
 def chat(request: ChatRequest):
     try:
         rag = PaperRAG(request.session_id, OLLAMA_BASE_URL, "nomic-embed-text")
-        context = rag.retrieve(request.question, k=4)
+        context = rag.retrieve(request.question, k=3)
         
         # format memory
         memory_text = ""
@@ -69,20 +69,11 @@ def chat(request: ChatRequest):
             for item in request.history:
                 memory_text += f"Người dùng: {item['q']}\nTrả lời: {item['a']}\n\n"
                 
-        prompt = f"""Bạn là trợ lý AI chuyên phân tích tài liệu PDF. Trả lời câu hỏi dựa trên thông tin trích xuất bên dưới.
-
-[Trích xuất từ PDF]
-{context[:3000]}
-{memory_text}
-[Câu hỏi]
-"{request.question}"
-
-[Yêu cầu]
-- Trả lời đi thẳng vào trọng tâm, chỉ liệt kê ý chính.
-- Định dạng bằng Markdown (có thể dùng in đậm, danh sách).
-- KHÔNG dùng tiếng Trung. Giữ nguyên thuật ngữ tiếng Anh gốc nếu không dịch được.
-"""
-        answer = query_ollama(prompt, num_predict=2048, temperature=0.1)
+        answer = query_chat(
+            context=context[:5000],
+            memory=memory_text,
+            question=request.question,
+        )
         
         return {"answer": answer}
     except Exception as e:
@@ -91,6 +82,5 @@ def chat(request: ChatRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    # Configure root logger to output to stdout
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -26,24 +26,5 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
-TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "")
 OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen3.5:4b")
-SCHEDULE_TIME: str = os.getenv("SCHEDULE_TIME", "13:00")
-
-TOPICS: list[str] = [
-    t.strip()
-    for t in os.getenv("TOPICS", "AI agents,RAG,multi-agent systems,LLM reasoning").split(",")
-    if t.strip()
-]
-
-EXCLUDE_KEYWORDS: list[str] = [
-    t.strip().lower()
-    for t in os.getenv("EXCLUDE_KEYWORDS", "quantum,bioinformatics,hardware,protein").split(",")
-    if t.strip()
-]
-
-MAX_RESULTS: int = int(os.getenv("MAX_RESULTS", "30"))
-DAYS_BACK: int = int(os.getenv("DAYS_BACK", "7"))
-TOP_K: int = int(os.getenv("TOP_K", "5"))

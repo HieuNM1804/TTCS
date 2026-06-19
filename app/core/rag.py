@@ -15,6 +15,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 log = logging.getLogger(__name__)
 
 _index_cache: dict[str, tuple] = {}
+_reranker_model = None
 
 EXCLUDE_KEYWORDS = [
     "reference", "bibliography", "bibliograph",
@@ -100,7 +101,7 @@ class PaperRAG:
         md_text = self._protect_tables(md_text)
 
         splitter = RecursiveCharacterTextSplitter(
-            chunk_size=3500, chunk_overlap=700,
+            chunk_size=4000, chunk_overlap=800,
             separators=["\n## ", "\n### ", "\n#### ", "\n\n", "\n", ". ", " "],
         )
         all_docs = splitter.create_documents(
@@ -160,21 +161,39 @@ class PaperRAG:
         _index_cache[self.arxiv_id] = (vectorstore, chunks)
         return vectorstore, chunks
 
-    def retrieve(self, query: str, k: int = 4) -> str:
-        self.build()
-        vectorstore, _ = self._load_index()
-        retriever = vectorstore.as_retriever(
-            search_type="mmr",
-            search_kwargs={"k": k, "fetch_k": 20, "lambda_mult": 0.5},
-        )
-        results = retriever.invoke(query)
-        return "\n\n".join(doc.page_content for doc in results[:k])
+    def retrieve(self, query: str, k: int = 3) -> str:
+        docs = self.retrieve_docs(query, k=k)
+        return "\n\n".join(doc.page_content for doc in docs)
 
-    def retrieve_docs(self, query: str, k: int = 4) -> list[Document]:
+    def retrieve_docs(self, query: str, k: int = 3) -> list[Document]:
         self.build()
         vectorstore, _ = self._load_index()
+        
+        # Step 1: Lấy 6 chunk ứng viên từ Vector DB
+        initial_k = 6
         retriever = vectorstore.as_retriever(
-            search_type="mmr",
-            search_kwargs={"k": k, "fetch_k": 20, "lambda_mult": 0.5},
+            search_type="similarity",
+            search_kwargs={"k": initial_k},
         )
-        return retriever.invoke(query)[:k]
+        candidates = retriever.invoke(query)
+        if not candidates:
+            return []
+            
+        # Step 2: Load Reranker model (lazy loading & cached)
+        global _reranker_model
+        if _reranker_model is None:
+            log.info("Loading Cross-Encoder reranker model (BAAI/bge-reranker-base) ...")
+            from sentence_transformers import CrossEncoder
+            _reranker_model = CrossEncoder("BAAI/bge-reranker-base")
+            
+        # Step 3: Tính điểm tương quan giữa câu hỏi và từng chunk ứng viên
+        pairs = [[query, doc.page_content] for doc in candidates]
+        scores = _reranker_model.predict(pairs)
+        
+        # Step 4: Sắp xếp các ứng viên theo điểm số giảm dần
+        scored_docs = sorted(zip(candidates, scores), key=lambda x: x[1], reverse=True)
+        
+        # Step 5: Lấy ra top k (mặc định là 3) chunks tốt nhất
+        ranked_docs = [doc for doc, score in scored_docs[:k]]
+        log.info("Reranked %d chunks -> selected top %d chunks", len(candidates), len(ranked_docs))
+        return ranked_docs

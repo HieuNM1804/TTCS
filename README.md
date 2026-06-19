@@ -1,82 +1,62 @@
-# 🤖 Daily Paper Brief Bot
+# DocMind Web RAG
 
-Một AI Agent chạy ngầm trên máy tính của bạn, tự động thu thập các bài báo mới nhất từ arXiv mỗi ngày, đánh giá chất lượng, tải PDF, và gửi báo cáo tóm tắt qua Telegram. Đặc biệt, Bot được tích hợp hệ thống **RAG (Retrieval-Augmented Generation)** cho phép bạn thảo luận và hỏi đáp trực tiếp (Q&A) với bài báo ngay trên Telegram.
+Web UI để upload PDF, tạo chỉ mục FAISS, rồi hỏi đáp trên nội dung tài liệu bằng Ollama chạy local.
 
-## 🌟 Tính năng chính
+## Tính năng
 
-1. **Daily Fetch**: Tự động lấy danh sách bài báo AI/ML mới nhất mỗi ngày từ arXiv theo khung giờ bạn đặt (ví dụ 11:17 sáng).
-2. **Auto-ranking**: Sử dụng LLM để chấm điểm và lọc ra Top 5 bài báo hay nhất (dựa trên abstract, github code, xu hướng SOTA).
-3. **Deep RAG Q&A**: 
-   - Khi bạn chọn 1 bài báo, bot sẽ tự động tải PDF, cắt nhỏ theo cấu trúc Section, nhúng (embedding) và lưu vào VectorDB (FAISS).
-   - Bạn có thể hỏi bất cứ chi tiết nào trong bài, LLM sẽ tìm đúng đoạn văn bản đó và trả lời cho bạn. Bot có bộ nhớ ngữ cảnh để bạn hỏi follow-up.
-4. **Custom PDF Upload**: Kéo thả một file PDF bất kỳ vào Telegram, bot sẽ tự động đọc hiểu file đó và cho phép bạn hỏi đáp lập tức.
+- Upload PDF trực tiếp trên trình duyệt.
+- Tự động trích xuất nội dung PDF bằng PyMuPDF/PyMuPDF4LLM.
+- Chia chunk theo cấu trúc tài liệu, embedding bằng `nomic-embed-text`, lưu FAISS tại `data/indices_v2`.
+- Hỏi đáp với context truy xuất từ PDF.
+- Rerank context bằng `BAAI/bge-reranker-base`.
 
-## ⚙️ Công nghệ sử dụng
-- **LLM**: Ollama (chạy local, khuyên dùng `qwen3.5:4b` hoặc `llama3.1:8b`).
-- **RAG Stack**: LangChain, FAISS, Nomic-Embed-Text, PyMuPDF4LLM.
-- **Interface**: Telegram Bot API (Long polling).
+## Công nghệ
 
-## 🚀 Cài đặt & Khởi động
+- **Backend**: FastAPI.
+- **Frontend**: HTML/CSS/JS tĩnh tại `app/static/index.html`.
+- **LLM local**: Ollama.
+- **RAG**: LangChain, FAISS, PyMuPDF4LLM, sentence-transformers.
 
-### Bước 1: Cài đặt thư viện
-Yêu cầu: Python 3.10+
+## Cài đặt
+
+Yêu cầu: Python 3.10+ và Ollama.
+
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-### Bước 2: Lấy Token Telegram
-Để Bot có thể gửi tin nhắn cho bạn, bạn cần tạo một con Bot riêng và lấy ID cá nhân của bạn trên Telegram:
+Tạo file `.env` từ `.env.example`:
 
-1. **Lấy Bot Token**: 
-   - Mở ứng dụng Telegram, tìm kiếm **@BotFather** (có tích xanh) và bấm `Start`.
-   - Gõ lệnh `/newbot`, sau đó nhập tên hiển thị cho Bot.
-   - Nhập username cho Bot (bắt buộc phải kết thúc bằng chữ `bot`, ví dụ: `my_ai_agent_bot`).
-   - BotFather sẽ cấp cho bạn một chuỗi Token dài (ví dụ: `123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11`). Đây chính là `TELEGRAM_BOT_TOKEN`.
-
-2. **Lấy Chat ID cá nhân**:
-   - Mở ứng dụng Telegram, tìm con Bot bạn vừa tạo ở Bước 1 và nhắn cho nó một dòng chữ bất kỳ (ví dụ: `hello`).
-   - Mở trình duyệt web và dán đường link sau (nhớ thay `<TOKEN>` bằng Token của bạn):
-     `https://api.telegram.org/bot<TOKEN>/getUpdates`
-   - Trình duyệt sẽ trả về một đoạn mã. Hãy tìm đến đoạn có chứa `"chat":{"id": ` -> Dãy số ngay phía sau chữ `id` chính là Chat ID của bạn (ví dụ: `7738904186`).
-   
-   *Copy dãy số Chat ID đó để dùng cho bước tiếp theo.*
-
-### Bước 3: Thiết lập môi trường
-Tạo file `.env` (bạn có thể copy từ `.env.example`):
 ```text
-TELEGRAM_BOT_TOKEN=Điền_Bot_Token_Vào_Đây
-TELEGRAM_CHAT_ID=Điền_Chat_ID_Vào_Đây
-TOPICS=AI agents,RAG,multi-agent systems,LLM reasoning
-EXCLUDE_KEYWORDS=quantum,bioinformatics,hardware,protein
-MAX_RESULTS=30
-DAYS_BACK=7
-TOP_K=5
-SCHEDULE_TIME=11:17
+OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen3.5:4b
 ```
 
-### Bước 4: Cài đặt và Tải Model Ollama
-Hệ thống sử dụng Ollama để chạy mô hình AI trực tiếp trên máy tính của bạn nhằm bảo mật dữ liệu và hoàn toàn miễn phí.
-1. Truy cập trang chủ [Ollama.com](https://ollama.com/download) để tải và cài đặt phần mềm Ollama cho máy tính của bạn (hỗ trợ Windows, Mac, Linux).
-2. Sau khi cài đặt xong, bật phần mềm Ollama lên.
-3. Mở Terminal và chạy 2 lệnh sau để tải mô hình Ngôn ngữ (`qwen3.5:4b`) và mô hình Nhúng (`nomic-embed-text`):
+Tải model Ollama:
+
 ```powershell
 ollama pull qwen3.5:4b
 ollama pull nomic-embed-text
 ```
 
-### Bước 5: Chạy Bot
-```powershell
-python -m app.main
-```
-Hệ thống sẽ chạy ngầm và lắng nghe tin nhắn Telegram của bạn!
+## Chạy Web UI
 
-## 📱 Các lệnh trên Telegram
-- `/start`: Bắt đầu và nhận danh sách 5 bài báo mới ngay lập tức.
-- `/fetch`: Cập nhật lại danh sách bài báo.
-- `/paper1` đến `/paper5`: Bắt đầu phiên Hỏi-Đáp với bài báo tương ứng.
-- `/up`: Chuyển Bot sang chế độ chờ nhận file PDF do bạn upload.
-- `/exit`: Kết thúc phiên thảo luận hiện tại.
-- `/help`: Xem trợ giúp.
+```powershell
+uvicorn app.api:app --reload --host 0.0.0.0 --port 8000
+```
+
+Mở trình duyệt tại:
+
+```text
+http://localhost:8000
+```
+
+## Cách dùng
+
+1. Upload một file PDF.
+2. Chờ hệ thống tạo index.
+3. Đặt câu hỏi trong khung chat.
+
+PDF được lưu tại `data/papers`. Index được lưu tại `data/indices_v2`.
